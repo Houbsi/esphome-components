@@ -28,6 +28,10 @@ class FanModeEnum {
   // Get a list of string values dynamically from the list
   static std::vector<std::string_view> getStringValues();
 
+  // Returns a stable const char* vector for Fan::set_supported_preset_modes().
+  // Built once from static string literals in FanModeList and cached for the program lifetime.
+  static const std::vector<const char *> &getPresetModePointers();
+
   static FanMode get_fan_mode_fromSpeed(int speed);
 
   static int get_start_speed(FanMode mode);
