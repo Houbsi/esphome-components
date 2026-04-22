@@ -67,3 +67,13 @@ int FanModeEnum::get_start_speed(FanMode mode) {
   }
   return 0;
 }
+
+const std::vector<const char *> &FanModeEnum::getPresetModePointers() {
+  static std::vector<const char *> pointers;
+  if (pointers.empty()) {
+    for (const auto &pair : getFanModeList()) {
+      pointers.push_back(pair.second.str.data());
+    }
+  }
+  return pointers;
+}
