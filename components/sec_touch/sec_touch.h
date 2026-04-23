@@ -47,6 +47,8 @@ class SECTouchComponent : public PollingComponent, public uart::UARTDevice {
            this->manual_update_listeners.count(property_id) > 0;
   }
 
+  void set_inter_task_delay(uint32_t ms) { inter_task_delay_ms_ = ms; }
+
   void add_set_task(std::unique_ptr<SetDataTask> task);
   void add_recursive_tasks_to_get_queue();
   void add_manual_tasks_to_queue();
@@ -87,6 +89,8 @@ class SECTouchComponent : public PollingComponent, public uart::UARTDevice {
   void send_ack_message();
 
   unsigned long task_start_time_ = 0;
+  unsigned long task_ready_at_ms_ = 0;
+  uint32_t inter_task_delay_ms_ = 30;
   int current_running_task_property_id_ = -1;
   bool last_scan_task_timed_out_ = false;
   void process_data_of_current_incoming_message();

@@ -15,11 +15,13 @@ FAN_LABEL_IDS = (78, 79, 80, 81, 82, 83)
 
 
 CONF_SEC_TOUCH_ID = "sec_touch_id"
+CONF_INTER_TASK_DELAY = "inter_task_delay_ms"
 # The total of fan pairs that the SEC-Touch shows in the screen
 
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(SECTouchComponent),
+        cv.Optional(CONF_INTER_TASK_DELAY, default=30): cv.positive_int,
     }
 )
 
@@ -44,3 +46,4 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)
+    cg.add(var.set_inter_task_delay(config[CONF_INTER_TASK_DELAY]))

@@ -90,6 +90,9 @@ void SECTouchComponent::loop() {
       return;
     }
 
+    if (millis() < this->task_ready_at_ms_) {
+      return;
+    }
     ESP_LOGD(TAG, "[loop] No Data available, processing task queue");
     this->process_task_queue();
     return;
@@ -448,6 +451,7 @@ void SECTouchComponent::cleanup_after_task_complete(bool failed, bool is_timeout
   this->current_running_task_type = TaskType::NONE;
   this->task_start_time_ = 0;
   this->last_scan_task_timed_out_ = is_timeout && this->scan_mode_active_;
+  this->task_ready_at_ms_ = millis() + this->inter_task_delay_ms_;
 }
 }  // namespace sec_touch
 }  // namespace esphome
