@@ -71,8 +71,8 @@ void SECTouchComponent::loop() {
                               (uint8_t) this->incoming_message.buffer[i]);
         }
         ESP_LOGW(TAG, "[watchdog] Task of type %s for property_id %d timed out — partial buffer (%d bytes: %s)",
-                 EnumToString::TaskType(this->current_running_task_type), this->current_running_task_property_id_,
-                 plen, hex_buf);
+                 EnumToString::TaskType(this->current_running_task_type), this->current_running_task_property_id_, plen,
+                 hex_buf);
       } else {
         ESP_LOGW(TAG, "[watchdog] Task of type %s for property_id %d timed out — no response received",
                  EnumToString::TaskType(this->current_running_task_type), this->current_running_task_property_id_);
@@ -126,8 +126,7 @@ void SECTouchComponent::loop() {
   }
 
   if (!got_etx) {
-    ESP_LOGD(TAG, "  Partial message in buffer (%d bytes), waiting for more",
-             this->incoming_message.buffer_index + 1);
+    ESP_LOGD(TAG, "  Partial message in buffer (%d bytes), waiting for more", this->incoming_message.buffer_index + 1);
     return;
   }
 
@@ -298,8 +297,14 @@ void SECTouchComponent::exit_scan_mode() {
 }
 
 void SECTouchComponent::add_set_task(std::unique_ptr<SetDataTask> task) {
-  ESP_LOGD(TAG, "add_set_task");
-  this->data_task_queue.push_back(std::move(task));
+  auto it = this->data_task_queue.begin();
+  while (it != this->data_task_queue.end() && (*it)->get_task_type() == TaskType::SET_DATA) {
+    ++it;
+  }
+  ESP_LOGD(TAG, "add_set_task: inserting at priority position %d of %d", (int) (it - this->data_task_queue.begin()),
+           (int) this->data_task_queue.size());
+
+  this->data_task_queue.insert(it, std::move(task));
 
   // WARNING: Do not add get tasks to update here. For now, we will just wait for the usual update cycle
   // if you add a get task here a recursive loop will be created (TODO?)
@@ -392,11 +397,14 @@ where:
   // Defensive: ensure message starts with STX and ends with ETX
   if (len < 7 || static_cast<uint8_t>(buf[0]) != STX || static_cast<uint8_t>(buf[len - 1]) != ETX) {
     char hex_buf[128];
+    hex_buf[0] = '\0';
     int hex_pos = 0;
     for (int i = 0; i < len && hex_pos < (int) sizeof(hex_buf) - 4; i++) {
       hex_pos += snprintf(hex_buf + hex_pos, sizeof(hex_buf) - hex_pos, "%02X ", (uint8_t) buf[i]);
     }
-    ESP_LOGE(TAG_UART, "  [process_data] Invalid message format (len=%d hex: %s). Task Failed", len, hex_buf);
+    ESP_LOGE(TAG_UART, "  [process_data] Invalid message format (task=%s property_id=%d len=%d hex: %s). Task Failed",
+             EnumToString::TaskType(this->current_running_task_type), this->current_running_task_property_id_, len,
+             hex_buf);
     this->cleanup_after_task_complete(true);
     return;
   }
@@ -416,13 +424,14 @@ where:
   }
   if (tab1 == -1 || tab2 == -1 || tab3 == -1) {
     char hex_buf[128];
+    hex_buf[0] = '\0';
     int hex_pos = 0;
     for (int i = 0; i < len && hex_pos < (int) sizeof(hex_buf) - 4; i++) {
       hex_pos += snprintf(hex_buf + hex_pos, sizeof(hex_buf) - hex_pos, "%02X ", (uint8_t) buf[i]);
     }
-    ESP_LOGE(TAG_UART, "  [process_data] Not enough TABs in message (task=%s property_id=%d len=%d hex: %s). Task Failed",
-             EnumToString::TaskType(this->current_running_task_type), this->current_running_task_property_id_, len,
-             hex_buf);
+    ESP_LOGE(
+        TAG_UART, "  [process_data] Not enough TABs in message (task=%s property_id=%d len=%d hex: %s). Task Failed",
+        EnumToString::TaskType(this->current_running_task_type), this->current_running_task_property_id_, len, hex_buf);
     this->cleanup_after_task_complete(true);
     return;
   }
