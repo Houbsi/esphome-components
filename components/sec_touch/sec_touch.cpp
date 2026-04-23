@@ -62,8 +62,21 @@ void SECTouchComponent::loop() {
                  EnumToString::TaskType(this->current_running_task_type));
         return;
       }
-      ESP_LOGW(TAG, "[watchdog] Task of type %s for property_id %d timed out, forcing cleanup",
-               EnumToString::TaskType(this->current_running_task_type), this->current_running_task_property_id_);
+      if (this->incoming_message.buffer_index >= 0) {
+        char hex_buf[128];
+        int hex_pos = 0;
+        int plen = this->incoming_message.buffer_index + 1;
+        for (int i = 0; i < plen && hex_pos < (int) sizeof(hex_buf) - 4; i++) {
+          hex_pos += snprintf(hex_buf + hex_pos, sizeof(hex_buf) - hex_pos, "%02X ",
+                              (uint8_t) this->incoming_message.buffer[i]);
+        }
+        ESP_LOGW(TAG, "[watchdog] Task of type %s for property_id %d timed out — partial buffer (%d bytes: %s)",
+                 EnumToString::TaskType(this->current_running_task_type), this->current_running_task_property_id_,
+                 plen, hex_buf);
+      } else {
+        ESP_LOGW(TAG, "[watchdog] Task of type %s for property_id %d timed out — no response received",
+                 EnumToString::TaskType(this->current_running_task_type), this->current_running_task_property_id_);
+      }
       this->cleanup_after_task_complete(true, true);
     }
 
@@ -399,7 +412,14 @@ where:
     }
   }
   if (tab1 == -1 || tab2 == -1 || tab3 == -1) {
-    ESP_LOGE(TAG_UART, "  [process_data] Not enough TABs in message. Task Failed");
+    char hex_buf[128];
+    int hex_pos = 0;
+    for (int i = 0; i < len && hex_pos < (int) sizeof(hex_buf) - 4; i++) {
+      hex_pos += snprintf(hex_buf + hex_pos, sizeof(hex_buf) - hex_pos, "%02X ", (uint8_t) buf[i]);
+    }
+    ESP_LOGE(TAG_UART, "  [process_data] Not enough TABs in message (task=%s property_id=%d len=%d hex: %s). Task Failed",
+             EnumToString::TaskType(this->current_running_task_type), this->current_running_task_property_id_, len,
+             hex_buf);
     this->cleanup_after_task_complete(true);
     return;
   }
