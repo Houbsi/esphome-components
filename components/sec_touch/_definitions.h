@@ -101,6 +101,14 @@ constexpr const char *NAME_MAPPING[NAME_MAPPING_COUNT] = {
  */
 using UpdateCallbackListener = std::function<void(int property_id, int new_value)>;
 
+// Includes command_id so the sniffer can record whether the device message was
+// a data response (command_id=32) or, if the hardware ever sends unsolicited messages
+// with a different command_id, distinguish those as well.
+using RawMessageCallbackListener = std::function<void(int command_id, int property_id, int new_value)>;
+
+// Called when the task queue is empty and no task is awaiting a response
+using QueueEmptyListener = std::function<void()>;
+
 // Helper function to check if an ID is in the array
 template<typename T, size_t N> static bool contains(const std::array<T, N> &arr, int value) {
   return std::find(arr.begin(), arr.end(), value) != arr.end();
@@ -157,7 +165,7 @@ struct IncomingMessage {
 
  public:
   char buffer[64];
-  size_t buffer_index = -1;
+  int buffer_index = -1;
 
   void reset() {
     this->buffer_index = -1;
@@ -193,7 +201,7 @@ struct IncomingMessage {
    * @returns the index of the last byte stored in the buffer
    */
   int store_data(uint8_t data) {
-    if (this->buffer_index + 1 < sizeof(this->buffer) - 1) {
+    if (this->buffer_index + 1 < (int) sizeof(this->buffer) - 1) {
       this->buffer_index++;
       this->buffer[this->buffer_index] = data;
 
@@ -241,6 +249,11 @@ struct GetDataTask : public BaseTask {
       return std::unique_ptr<GetDataTask>(new GetDataTask(targetType, property_id));  // Valid task
     }
     return nullptr;  // Null unique_ptr if validation fails
+  }
+
+  // Bypasses ID validation — for sniffer/discovery use only
+  static std::unique_ptr<GetDataTask> create_unchecked(int property_id) {
+    return std::unique_ptr<GetDataTask>(new GetDataTask(TaskTargetType::LEVEL, property_id));
   }
 
   TaskType get_task_type() const override { return TaskType::GET_DATA; }

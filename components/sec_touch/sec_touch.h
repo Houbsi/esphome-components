@@ -35,6 +35,18 @@ class SECTouchComponent : public PollingComponent, public uart::UARTDevice {
    */
   void register_manual_update_listener(int property_id, UpdateCallbackListener listener);
 
+  void register_raw_message_listener(RawMessageCallbackListener listener);
+  void register_queue_empty_listener(QueueEmptyListener listener);
+  void add_discovery_get_task(int property_id);
+
+  void enter_scan_mode();
+  void exit_scan_mode();
+  bool get_last_scan_task_timed_out() const { return last_scan_task_timed_out_; }
+  bool is_property_registered(int property_id) const {
+    return this->recursive_update_listeners.count(property_id) > 0 ||
+           this->manual_update_listeners.count(property_id) > 0;
+  }
+
   void add_set_task(std::unique_ptr<SetDataTask> task);
   void add_recursive_tasks_to_get_queue();
   void add_manual_tasks_to_queue();
@@ -51,9 +63,14 @@ class SECTouchComponent : public PollingComponent, public uart::UARTDevice {
   std::map<int, UpdateCallbackListener> manual_update_listeners;
   std::vector<int> manual_update_ids;
 
+  std::vector<RawMessageCallbackListener> raw_message_listeners;
+  std::vector<QueueEmptyListener> queue_empty_listeners;
+  bool scan_mode_active_{false};
+  bool queue_was_idle_{false};
+
   std::map<int, text_sensor::TextSensor *> text_sensors;
 
-  void notify_update_listeners(int property_id, int new_value);
+  void notify_update_listeners(int command_id, int property_id, int new_value);
   TaskType current_running_task_type = TaskType::NONE;
 
   void process_task_queue();
@@ -66,10 +83,12 @@ class SECTouchComponent : public PollingComponent, public uart::UARTDevice {
    * Returns the index of the last byte stored in the buffer
    */
   int store_data_to_incoming_message(uint8_t data);
-  void cleanup_after_task_complete(bool failed = false);
+  void cleanup_after_task_complete(bool failed = false, bool is_timeout = false);
   void send_ack_message();
 
   unsigned long task_start_time_ = 0;
+  int current_running_task_property_id_ = -1;
+  bool last_scan_task_timed_out_ = false;
   void process_data_of_current_incoming_message();
 };
 }  // namespace sec_touch

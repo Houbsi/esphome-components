@@ -42,6 +42,9 @@ void SECTouchComponent::dump_config() {
 
 // poll component update
 void SECTouchComponent::update() {
+  if (this->scan_mode_active_) {
+    return;
+  }
   if (this->data_task_queue.empty() && !this->available()) {
     ESP_LOGD(TAG, "SEC-Touch update");
     this->add_recursive_tasks_to_get_queue();
@@ -51,22 +54,29 @@ void SECTouchComponent::update() {
 void SECTouchComponent::loop() {
   if (!this->available()) {
     ESP_LOGVV(TAG, "[loop] No Data available");
-    if (this->data_task_queue.empty()) {
-      return;
-    }
 
-    // Watchdog check
+    // Watchdog check: must run even when queue is empty because tasks are popped on dispatch.
     if (this->current_running_task_type != TaskType::NONE) {
-      if (this->task_start_time_ > 0 && millis() - this->task_start_time_ > TASK_TIMEOUT_MS) {
-        ESP_LOGW(TAG, "[watchdog] Task of type %s timed out, forcing cleanup",
-                 EnumToString::TaskType(this->current_running_task_type));
-        this->cleanup_after_task_complete(true);
-      } else {
+      if (this->task_start_time_ == 0 || millis() - this->task_start_time_ <= TASK_TIMEOUT_MS) {
         ESP_LOGD(TAG, "[loop] We are waiting for the response after a task of type %s",
                  EnumToString::TaskType(this->current_running_task_type));
         return;
       }
+      ESP_LOGW(TAG, "[watchdog] Task of type %s for property_id %d timed out, forcing cleanup",
+               EnumToString::TaskType(this->current_running_task_type), this->current_running_task_property_id_);
+      this->cleanup_after_task_complete(true, true);
     }
+
+    if (this->data_task_queue.empty()) {
+      if (!this->queue_was_idle_) {
+        this->queue_was_idle_ = true;
+        for (auto &cb : this->queue_empty_listeners) {
+          cb();
+        }
+      }
+      return;
+    }
+
     ESP_LOGD(TAG, "[loop] No Data available, processing task queue");
     this->process_task_queue();
     return;
@@ -74,45 +84,38 @@ void SECTouchComponent::loop() {
 
   ESP_LOGD(TAG, "[loop] Data available (Current buffer size: %d, Task queue size: %d)",
            this->incoming_message.buffer_index + 1, this->data_task_queue.size());
-  // We have send some data and now we are waiting for the response
+
   uint8_t peakedData;
   this->peek_byte(&peakedData);
 
-  // Noise or Heartbeat handling?
+  // Discard noise only when not already mid-message
   if (this->incoming_message.buffer_index == -1 && peakedData != STX) {
     ESP_LOGD(TAG, "[loop]  Discarding noise byte (or maybe a Heartbeat with %d?)", peakedData);
     this->read_byte(&peakedData);
     return;
   }
 
-  if (this->incoming_message.buffer_index == -1) {
-    if (peakedData != STX) {
-      ESP_LOGW(TAG, "  Discarding noise(?) byte %d, expected STX", peakedData);
-      this->read_byte(&peakedData);  // Discard the noise
-      return;
+  // Read bytes until ETX or UART buffer empties. Handles both starting a new
+  // message and continuing a partial message that spanned multiple loop() calls.
+  bool got_etx = false;
+  while (this->available()) {
+    uint8_t data;
+    this->read_byte(&data);
+    this->store_data_to_incoming_message(data);
+    if (data == ETX) {
+      ESP_LOGD(TAG, "  Received ETX, processing message");
+      got_etx = true;
+      break;
     }
+  }
 
-    ESP_LOGD(TAG, "  Received STX %d. Starting to store Message", peakedData);
-
-    // keep storing data in the incoming message until we reach ETX
-    while (this->available()) {
-      uint8_t data;
-      this->read_byte(&data);
-      this->store_data_to_incoming_message(data);
-
-      // if a ETX appears, then exit to process the message
-      if (data == ETX) {
-        ESP_LOGD(TAG, "  Received ETX %d, processing message", data);
-        break;
-      }
-    }
-
-    // Process the incoming message will also verify that the message format is correct
-    this->process_data_of_current_incoming_message();
+  if (!got_etx) {
+    ESP_LOGD(TAG, "  Partial message in buffer (%d bytes), waiting for more",
+             this->incoming_message.buffer_index + 1);
     return;
   }
 
-  return;
+  this->process_data_of_current_incoming_message();
 }
 
 void SECTouchComponent::register_text_sensor(int id, text_sensor::TextSensor *sensor) {
@@ -127,32 +130,38 @@ esphome::optional<text_sensor::TextSensor *> SECTouchComponent::get_text_sensor(
   return esphome::optional<text_sensor::TextSensor *>{};
 }
 
-void SECTouchComponent::notify_update_listeners(int property_id, int new_value) {
-  ESP_LOGV(TAG, "notify_update_listeners for property_id %d", property_id);
+void SECTouchComponent::notify_update_listeners(int command_id, int property_id, int new_value) {
+  ESP_LOGV(TAG, "notify_update_listeners command_id=%d property_id=%d", command_id, property_id);
 
-  auto recursive_listener = this->recursive_update_listeners.find(property_id);
-
-  if (recursive_listener == this->recursive_update_listeners.end()) {
-    ESP_LOGV(TAG, "No recursive_update_listeners found for property_id %d", property_id);
-  } else {
-    ESP_LOGV(TAG, "recursive_update_listener found for property_id %d", property_id);
-    UpdateCallbackListener &listener = recursive_listener->second;
-    listener(property_id, new_value);  // Call the listener
+  if (this->scan_mode_active_) {
+    for (auto &cb : this->raw_message_listeners) {
+      cb(command_id, property_id, new_value);
+    }
+    return;
   }
 
+  auto recursive_listener = this->recursive_update_listeners.find(property_id);
   auto manual_listener = this->manual_update_listeners.find(property_id);
 
-  if (manual_listener == this->manual_update_listeners.end()) {
-    ESP_LOGV(TAG, "No manual_update_listeners found for property_id %d", property_id);
-  } else {
+  if (recursive_listener != this->recursive_update_listeners.end()) {
+    ESP_LOGV(TAG, "recursive_update_listener found for property_id %d", property_id);
+    recursive_listener->second(property_id, new_value);
+  }
+
+  if (manual_listener != this->manual_update_listeners.end()) {
     ESP_LOGD(TAG, "manual_update_listener found for property_id %d", property_id);
-    UpdateCallbackListener &listener = manual_listener->second;
-    listener(property_id, new_value);  // Call the listener
+    manual_listener->second(property_id, new_value);
   }
 
   if (recursive_listener == this->recursive_update_listeners.end() &&
       manual_listener == this->manual_update_listeners.end()) {
-    ESP_LOGE(TAG, "No listener found for property_id %d", property_id);
+    if (this->raw_message_listeners.empty()) {
+      ESP_LOGW(TAG, "No listener for property_id %d (value %d)", property_id, new_value);
+      return;
+    }
+    for (auto &cb : this->raw_message_listeners) {
+      cb(command_id, property_id, new_value);
+    }
   }
 }
 
@@ -169,7 +178,9 @@ void SECTouchComponent::process_task_queue() {
            EnumToString::TaskType(task->get_task_type()));
 
   this->current_running_task_type = task->get_task_type();
-  this->task_start_time_ = millis();  // <-- Set watchdog timer here
+  this->task_start_time_ = millis();
+  this->current_running_task_property_id_ = task->property_id;
+  this->queue_was_idle_ = false;
 
   switch (task->get_task_type()) {
     case TaskType::SET_DATA:
@@ -193,6 +204,7 @@ int SECTouchComponent::store_data_to_incoming_message(uint8_t data) {
 void SECTouchComponent::add_recursive_tasks_to_get_queue() {
   if (this->recursive_update_ids.empty()) {
     ESP_LOGW(TAG, "No property ids are registered for recursive tasks");
+    return;
   }
 
   for (size_t i = 0; i < this->recursive_update_ids.size(); i++) {
@@ -233,9 +245,40 @@ void SECTouchComponent::register_recursive_update_listener(int property_id, Upda
 }
 
 void SECTouchComponent::register_manual_update_listener(int property_id, UpdateCallbackListener listener) {
-  ESP_LOGD(TAG, "register_recursive_update_listener for property_id %d", property_id);
-  this->manual_update_listeners[property_id] = std ::move(listener);
+  ESP_LOGD(TAG, "register_manual_update_listener for property_id %d", property_id);
+  this->manual_update_listeners[property_id] = std::move(listener);
   this->manual_update_ids.push_back(property_id);
+}
+
+void SECTouchComponent::register_raw_message_listener(RawMessageCallbackListener listener) {
+  this->raw_message_listeners.push_back(std::move(listener));
+}
+
+void SECTouchComponent::register_queue_empty_listener(QueueEmptyListener listener) {
+  this->queue_empty_listeners.push_back(std::move(listener));
+}
+
+void SECTouchComponent::add_discovery_get_task(int property_id) {
+  this->data_task_queue.push_back(GetDataTask::create_unchecked(property_id));
+}
+
+void SECTouchComponent::enter_scan_mode() {
+  ESP_LOGI(TAG, "Entering scan mode — pausing regular polling");
+  if (!this->data_task_queue.empty()) {
+    ESP_LOGW(TAG, "Entering scan mode — discarding %d pending task(s)", this->data_task_queue.size());
+  }
+  this->data_task_queue.clear();
+  this->incoming_message.reset();
+  this->current_running_task_type = TaskType::NONE;
+  this->task_start_time_ = 0;
+  this->queue_was_idle_ = false;  // Force queue-empty callback to fire so scan tasks get queued
+  this->scan_mode_active_ = true;
+}
+
+void SECTouchComponent::exit_scan_mode() {
+  ESP_LOGI(TAG, "Exiting scan mode — resuming regular polling");
+  this->scan_mode_active_ = false;
+  this->add_recursive_tasks_to_get_queue();
 }
 
 void SECTouchComponent::add_set_task(std::unique_ptr<SetDataTask> task) {
@@ -293,8 +336,22 @@ Now, we need to extract the parts of the message. It can be either:
   if (this->incoming_message.buffer[0] == STX && this->incoming_message.buffer[1] == ACK &&
       this->incoming_message.buffer[this->incoming_message.buffer_index] == ETX) {
     ESP_LOGD(TAG, "  Received ACK message");
-    // this->send_ack_message(); // I do not think we need to send ACK back here, do we?
-    this->cleanup_after_task_complete();
+    if (this->current_running_task_type == TaskType::GET_DATA) {
+      // GET: ACK confirms the device received our request; the data response follows.
+      // Keep task state so the queue-empty callback does not fire prematurely.
+      this->incoming_message.reset();
+    } else {
+      // SET: ACK is the complete response — task is done.
+      this->cleanup_after_task_complete();
+    }
+    return;
+  }
+
+  // NAK: device rejected the request (e.g. unknown property_id during scan)
+  if (this->incoming_message.buffer[0] == STX && this->incoming_message.buffer[1] == NAK &&
+      this->incoming_message.buffer[this->incoming_message.buffer_index] == ETX) {
+    ESP_LOGW(TAG, "  Received NAK — property_id not supported by device");
+    this->cleanup_after_task_complete(true);
     return;
   }
 
@@ -318,7 +375,12 @@ where:
 
   // Defensive: ensure message starts with STX and ends with ETX
   if (len < 7 || static_cast<uint8_t>(buf[0]) != STX || static_cast<uint8_t>(buf[len - 1]) != ETX) {
-    ESP_LOGE(TAG_UART, "  [process_data] Invalid message format. Task Failed");
+    char hex_buf[128];
+    int hex_pos = 0;
+    for (int i = 0; i < len && hex_pos < (int) sizeof(hex_buf) - 4; i++) {
+      hex_pos += snprintf(hex_buf + hex_pos, sizeof(hex_buf) - hex_pos, "%02X ", (uint8_t) buf[i]);
+    }
+    ESP_LOGE(TAG_UART, "  [process_data] Invalid message format (len=%d hex: %s). Task Failed", len, hex_buf);
     this->cleanup_after_task_complete(true);
     return;
   }
@@ -354,18 +416,18 @@ where:
   // Optionally: validate CRC here if needed
 
   // Notify listeners
-  this->notify_update_listeners(property_id, value);
+  this->notify_update_listeners(command_id, property_id, value);
 
-  this->incoming_message.reset();
+  this->cleanup_after_task_complete();
   this->send_ack_message();  // Send ACK back
 }
 
-void SECTouchComponent::cleanup_after_task_complete(bool failed) {
+void SECTouchComponent::cleanup_after_task_complete(bool failed, bool is_timeout) {
   ESP_LOGD(TAG, "cleanup_after_task_complete called, failed: %s", failed ? "true" : "false");
   this->incoming_message.reset();
   this->current_running_task_type = TaskType::NONE;
-  this->task_start_time_ = 0;  // <-- Reset watchdog timer
-                               // TODO: SEND NACK??
+  this->task_start_time_ = 0;
+  this->last_scan_task_timed_out_ = is_timeout && this->scan_mode_active_;
 }
 }  // namespace sec_touch
 }  // namespace esphome

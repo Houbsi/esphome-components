@@ -245,6 +245,275 @@ Notice that the fans numbers are ordered so:
 | Pair 2 | Pair 4 | Pair 6 | ⚙️  |
 
 
+## Sniffer
+
+The sniffer listens for UART messages sent by the SEC-Touch for property IDs that no component has registered interest in. This lets you discover unknown property IDs for future use.
+
+Two modes are available:
+
+- **Passive** (always on): unknown IDs that arrive during normal polling are captured automatically.
+- **Active scan** (optional): iterates through a configured range of property IDs, querying each one in turn. Normal polling is paused while scanning.
+
+Results are published as a text sensor and visible in Home Assistant. An optional switch reflects whether a scan is currently running and can be toggled from Home Assistant.
+
+> **Note:** Active scan is not recommended on ESP8266. Each discovered entry uses ~80–100 bytes of heap; a 200-ID scan uses ~20 KB against only ~40 KB of usable heap.
+
+### Passive-only example
+
+```yaml
+text_sensor:
+  - platform: sec_touch_sniffer
+    sec_touch_id: sec_touch_component
+    name: "Sniffer"
+```
+
+### Full example (with active scan)
+
+```yaml
+time:
+  - platform: homeassistant
+    id: ha_time
+
+text_sensor:
+  - platform: sec_touch_sniffer
+    sec_touch_id: sec_touch_component
+    name: "Sniffer"
+    time_id: ha_time       # optional — uses device uptime when omitted
+    scan_start: 1          # first property ID to query in active scan
+    scan_end: 250          # last property ID to query; must be >= scan_start
+    scan_switch:
+      name: "Sniffer Scan Active"
+```
+
+Turning the switch on starts a scan from `scan_start`. Turning it off stops the scan immediately, publishes the results discovered so far, and saves the current position. Turning it on again resumes from where it left off. When the full range has been scanned, polling resumes automatically, the full result is published to the text sensor, and the switch turns off.
+
+If a property ID does not respond within 2 seconds the scan retries it once. If it times out again the ID is skipped and a warning is logged.
+
+### What I have found so far
+
+Scan performed over IDs 1–208. IDs 78–83 (fan labels) and 173–178 (fan levels) are registered listeners and are excluded from the sniffer output — their meaning is already documented above.
+
+**If you recognize a pattern or know what an ID controls, please open a PR or issue.**
+
+<details>
+<summary>Raw sniffer output (copy-paste ready)</summary>
+
+```
+1=23, 2=16, 3=0, 4=0, 5=100, 6=1, 7=1, 8=1, 9=0, 10=0, 11=0, 12=0, 13=0, 14=0, 15=0, 16=0, 17=0, 18=0, 19=80, 20=6, 21=16, 22=40, 23=32, 24=28, 25=25, 26=21, 27=0, 28=61, 29=70, 30=74, 31=77, 32=81, 33=100, 34=50, 35=50, 36=50, 37=50, 38=50, 39=50, 40=50, 41=50, 42=50, 43=50, 44=50, 45=50, 46=50, 47=75, 48=800, 49=1200, 50=400, 51=20, 52=70, 53=10, 54=20, 55=0, 56=127, 57=0, 58=1, 59=95, 60=1, 61=1, 62=1, 63=1, 64=1, 65=0, 66=1, 67=2, 68=3, 69=4, 70=5, 71=6, 72=0, 73=1, 74=1, 75=1, 76=1, 77=1, 83=0, 84=13, 85=0, 86=1, 87=0, 88=0, 89=0, 90=0, 91=0, 92=100, 93=74, 94=6, 95=0, 96=100, 97=250, 98=2000, 99=-50, 100=50, 101=18, 102=6, 103=11, 104=22, 105=9, 106=22, 107=0, 108=7, 109=4, 110=3, 111=0, 112=18, 113=13, 114=14, 115=7, 116=23, 117=7, 118=7, 119=0, 120=7, 121=2, 122=0, 123=0, 124=13, 125=14, 126=22, 127=4, 128=12, 129=7, 130=0, 131=1, 132=0, 133=0, 134=0, 135=13, 136=14, 137=20, 138=8, 139=12, 140=7, 141=0, 142=2, 143=0, 144=0, 145=0, 146=0, 147=23, 148=8, 149=15, 150=4, 151=7, 152=1, 153=1, 154=0, 155=7, 156=0, 157=6, 158=9, 159=15, 160=20, 161=22, 162=0, 163=0, 164=0, 165=0, 166=0, 167=0, 168=3, 169=0, 170=0, 171=0, 172=0, 176=0, 178=255, 179=127, 180=127, 181=127, 182=127, 183=127, 184=127, 185=36, 186=31, 187=27, 188=18, 189=10, 190=0, 191=64, 192=70, 194=85, 195=100, 196=0, 197=36, 198=31, 199=27, 200=23, 201=18, 202=10, 203=64, 204=70, 205=74, 206=80, 207=85, 208=100
+```
+
+</details>
+
+<details>
+<summary>ID analysis table (help wanted — fill in what you know)</summary>
+
+> **IDs not in output:** 78–82 (fan pair labels, registered listener), 173–175, 177 (fan pair levels, registered listener), 193 (no response from device).
+
+| ID | Value | Hypothesis | Confidence |
+|----|-------|------------|------------|
+| 1 | 23 | | |
+| 2 | 16 | | |
+| 3 | 0 | | |
+| 4 | 0 | | |
+| 5 | 100 | | |
+| 6 | 1 | | |
+| 7 | 1 | | |
+| 8 | 1 | | |
+| 9 | 0 | | |
+| 10 | 0 | | |
+| 11 | 0 | | |
+| 12 | 0 | | |
+| 13 | 0 | | |
+| 14 | 0 | | |
+| 15 | 0 | | |
+| 16 | 0 | | |
+| 17 | 0 | | |
+| 18 | 0 | | |
+| 19 | 80 | | |
+| 20 | 6 | | |
+| 21 | 16 | | |
+| 22 | 40 | | |
+| 23 | 32 | | |
+| 24 | 28 | | |
+| 25 | 25 | | |
+| 26 | 21 | | |
+| 27 | 0 | | |
+| 28 | 61 | | |
+| 29 | 70 | | |
+| 30 | 74 | | |
+| 31 | 77 | | |
+| 32 | 81 | | |
+| 33 | 100 | | |
+| 34 | 50 | | |
+| 35 | 50 | | |
+| 36 | 50 | | |
+| 37 | 50 | | |
+| 38 | 50 | | |
+| 39 | 50 | | |
+| 40 | 50 | | |
+| 41 | 50 | | |
+| 42 | 50 | | |
+| 43 | 50 | | |
+| 44 | 50 | | |
+| 45 | 50 | | |
+| 46 | 50 | | |
+| 47 | 75 | | |
+| 48 | 800 | | |
+| 49 | 1200 | | |
+| 50 | 400 | | |
+| 51 | 20 | | |
+| 52 | 70 | | |
+| 53 | 10 | | |
+| 54 | 20 | | |
+| 55 | 0 | | |
+| 56 | 127 | | |
+| 57 | 0 | | |
+| 58 | 1 | | |
+| 59 | 95 | | |
+| 60 | 1 | | |
+| 61 | 1 | | |
+| 62 | 1 | | |
+| 63 | 1 | | |
+| 64 | 1 | | |
+| 65 | 0 | | |
+| 66 | 1 | | |
+| 67 | 2 | | |
+| 68 | 3 | | |
+| 69 | 4 | | |
+| 70 | 5 | | |
+| 71 | 6 | | |
+| 72 | 0 | | |
+| 73 | 1 | | |
+| 74 | 1 | | |
+| 75 | 1 | | |
+| 76 | 1 | | |
+| 77 | 1 | | |
+| 83 | 0 | | |
+| 84 | 13 | | |
+| 85 | 0 | | |
+| 86 | 1 | | |
+| 87 | 0 | | |
+| 88 | 0 | | |
+| 89 | 0 | | |
+| 90 | 0 | | |
+| 91 | 0 | | |
+| 92 | 100 | | |
+| 93 | 74 | | |
+| 94 | 6 | | |
+| 95 | 0 | | |
+| 96 | 100 | | |
+| 97 | 250 | | |
+| 98 | 2000 | | |
+| 99 | -50 | | |
+| 100 | 50 | | |
+| 101 | 18 | | |
+| 102 | 6 | | |
+| 103 | 11 | | |
+| 104 | 22 | | |
+| 105 | 9 | | |
+| 106 | 22 | | |
+| 107 | 0 | | |
+| 108 | 7 | | |
+| 109 | 4 | | |
+| 110 | 3 | | |
+| 111 | 0 | | |
+| 112 | 18 | | |
+| 113 | 13 | | |
+| 114 | 14 | | |
+| 115 | 7 | | |
+| 116 | 23 | | |
+| 117 | 7 | | |
+| 118 | 7 | | |
+| 119 | 0 | | |
+| 120 | 7 | | |
+| 121 | 2 | | |
+| 122 | 0 | | |
+| 123 | 0 | | |
+| 124 | 13 | | |
+| 125 | 14 | | |
+| 126 | 22 | | |
+| 127 | 4 | | |
+| 128 | 12 | | |
+| 129 | 7 | | |
+| 130 | 0 | | |
+| 131 | 1 | | |
+| 132 | 0 | | |
+| 133 | 0 | | |
+| 134 | 0 | | |
+| 135 | 13 | | |
+| 136 | 14 | | |
+| 137 | 20 | | |
+| 138 | 8 | | |
+| 139 | 12 | | |
+| 140 | 7 | | |
+| 141 | 0 | | |
+| 142 | 2 | | |
+| 143 | 0 | | |
+| 144 | 0 | | |
+| 145 | 0 | | |
+| 146 | 0 | | |
+| 147 | 23 | | |
+| 148 | 8 | | |
+| 149 | 15 | | |
+| 150 | 4 | | |
+| 151 | 7 | | |
+| 152 | 1 | | |
+| 153 | 1 | | |
+| 154 | 0 | | |
+| 155 | 7 | | |
+| 156 | 0 | | |
+| 157 | 6 | | |
+| 158 | 9 | | |
+| 159 | 15 | | |
+| 160 | 20 | | |
+| 161 | 22 | | |
+| 162 | 0 | | |
+| 163 | 0 | | |
+| 164 | 0 | | |
+| 165 | 0 | | |
+| 166 | 0 | | |
+| 167 | 0 | | |
+| 168 | 3 | | |
+| 169 | 0 | | |
+| 170 | 0 | | |
+| 171 | 0 | | |
+| 172 | 0 | | |
+| 176 | 0 | | |
+| 178 | 255 | | |
+| 179 | 127 | | |
+| 180 | 127 | | |
+| 181 | 127 | | |
+| 182 | 127 | | |
+| 183 | 127 | | |
+| 184 | 127 | | |
+| 185 | 36 | | |
+| 186 | 31 | | |
+| 187 | 27 | | |
+| 188 | 18 | | |
+| 189 | 10 | | |
+| 190 | 0 | | |
+| 191 | 64 | | |
+| 192 | 70 | | |
+| 194 | 85 | | |
+| 195 | 100 | | |
+| 196 | 0 | | |
+| 197 | 36 | | |
+| 198 | 31 | | |
+| 199 | 27 | | |
+| 200 | 23 | | |
+| 201 | 18 | | |
+| 202 | 10 | | |
+| 203 | 64 | | |
+| 204 | 70 | | |
+| 205 | 74 | | |
+| 206 | 80 | | |
+| 207 | 85 | | |
+| 208 | 100 | | |
+
+</details>
+
+---
+
 ## :bulb: Setting The Fan Level above 6
 Please check the [Special Fan level Values](#fan-pair-level-special-values) section to understand the special values for the fan level.
 
