@@ -99,4 +99,4 @@ Note: discovered state is held in RAM only. After a device restart or firmware f
 2. Turning scan mode on stops normal polling and listener updates; the text sensor populates with discovered IDs across the configured range.
 3. Turning scan mode off mid-scan resumes normal polling immediately; the saved position is used when scan mode is turned on again.
 4. When scan mode runs to completion, polling resumes automatically and the binary sensor reflects the off state.
-5. IDs with registered listeners do not appear in passive capture output, but do appear in scan mode output.
+5. IDs with registered listeners do not appear in passive capture output and are skipped in scan mode, so they do not appear in scan output either.  

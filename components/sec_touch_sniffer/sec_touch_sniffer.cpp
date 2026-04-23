@@ -60,6 +60,8 @@ void SecTouchSniffer::toggle_scan() {
 
   if (this->scan_end_ == 0) {
     ESP_LOGW(TAG, "toggle_scan() called but no scan range configured — ignoring");
+    this->is_scanning_ = false;
+    this->update_scan_switch_();
     return;
   }
 
