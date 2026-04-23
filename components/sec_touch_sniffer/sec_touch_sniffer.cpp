@@ -18,12 +18,18 @@ void SecTouchSniffer::setup() {
 }
 
 void SecTouchSniffer::dump_config() {
-  ESP_LOGCONFIG(TAG, "SecTouchSniffer:");
+  ESP_LOGCONFIG(TAG, "SEC-Touch-Sniffer:");
   ESP_LOGCONFIG(TAG, "  Time source: %s", this->time_ != nullptr ? "RTC" : "uptime fallback");
   if (this->scan_end_ > 0) {
     ESP_LOGCONFIG(TAG, "  Scan range: %d - %d", this->scan_start_, this->scan_end_);
   } else {
     ESP_LOGCONFIG(TAG, "  Scan: not configured (passive mode only)");
+  }
+  if (this->discovered_ids_.empty()) {
+    ESP_LOGCONFIG(TAG, "  Discovered IDs: none");
+  } else {
+    ESP_LOGCONFIG(TAG, "  Discovered IDs (%d): %s", (int) this->discovered_ids_.size(),
+                  this->build_state_string_().c_str());
   }
 }
 
@@ -97,8 +103,7 @@ void SecTouchSniffer::on_queue_empty_() {
     this->scan_retry_pending_ = false;
   }
 
-  while (this->current_scan_id_ <= this->scan_end_ &&
-         this->parent_->is_property_registered(this->current_scan_id_)) {
+  while (this->current_scan_id_ <= this->scan_end_ && this->parent_->is_property_registered(this->current_scan_id_)) {
     ESP_LOGI(TAG, "Scan: skipping registered property_id %d", this->current_scan_id_);
     this->current_scan_id_++;
   }
