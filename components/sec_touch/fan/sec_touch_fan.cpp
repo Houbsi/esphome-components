@@ -195,8 +195,15 @@ void SecTouchFan::control(const fan::FanCall &call) {
     } else {
       target_level = FanModeEnum::get_start_speed(calculated_mode);
       if (this->split_special_modes_ && target_level > 6) {
-        // Keep this->speed in 1..6 so HA (speed_count=6) stays in range.
-        // The special level goes to the BDE via target_level only; preset_mode is the HA signal.
+        // Split mode: pick a representative slider position per preset so HA gives
+        // the user a visual hint of the airflow intensity. The BDE receives the real
+        // special level via target_level; the preset_mode dropdown remains authoritative.
+        if (calculated_mode == FanModeEnum::FanMode::BURST) {
+          // Burst = Stosslüften: aggressive airing-out, map to slider max (level 6).
+          this->speed = 6;
+        }
+        // Sleep and the Automatic_* modes leave the slider untouched:
+        // Sleep is low-intensity, Auto-* varies per sensor - neither maps cleanly.
       } else {
         this->speed = target_level;
       }
