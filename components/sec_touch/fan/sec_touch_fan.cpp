@@ -181,8 +181,17 @@ void SecTouchFan::control(const fan::FanCall &call) {
         current.empty() ? std::string_view("") : std::string_view(current.c_str(), current.size());
     FanModeEnum::FanMode calculated_mode = FanModeEnum::from_string(cur_sv).value_or(FanModeEnum::FanMode::NORMAL);
     if (calculated_mode == FanModeEnum::FanMode::NORMAL) {
-      this->speed = 1;
-      target_level = 1;
+      if (this->split_special_modes_) {
+        // Split mode: the slider is the source of truth for continuous ventilation.
+        // Preserve the current speed; only clamp if it is outside the 1..6 range.
+        if (this->speed < 1 || this->speed > 6) {
+          this->speed = 1;
+        }
+        target_level = this->speed;
+      } else {
+        this->speed = 1;
+        target_level = 1;
+      }
     } else {
       target_level = FanModeEnum::get_start_speed(calculated_mode);
       if (this->split_special_modes_ && target_level > 6) {
