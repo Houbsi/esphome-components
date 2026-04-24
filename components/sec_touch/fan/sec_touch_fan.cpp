@@ -98,14 +98,21 @@ bool SecTouchFan::assign_new_speed_if_needed(int real_speed_from_device) {
 
   // SPECIAL MODE SPEEDS (levels 7..11)
   if (this->split_special_modes_) {
-    // In split mode the HA fan only exposes speeds 1..6.
-    // Surface levels 7..11 solely via preset_mode; keep fan state=on but do not
-    // store the raw level in this->speed (it would exceed speed_count=6).
+    // In split mode the HA fan only exposes speeds 1..6. Most special modes leave
+    // this->speed untouched because storing 7..11 would exceed speed_count=6.
+    // Exception: Burst is semantically "aggressive airing-out", so we snap the
+    // slider to 6 (100%) for visual hint parity with the outbound control() path -
+    // otherwise the UI would show stale 16% while preset=Burst is active.
+    bool changed = false;
     if (this->state != 1) {
       this->state = 1;
-      return true;
+      changed = true;
     }
-    return false;
+    if (real_speed_from_device == 7 && this->speed != 6) {
+      this->speed = 6;
+      changed = true;
+    }
+    return changed;
   }
 
   if (this->state != 1 || this->speed != real_speed_from_device) {
