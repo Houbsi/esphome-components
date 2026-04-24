@@ -96,7 +96,18 @@ bool SecTouchFan::assign_new_speed_if_needed(int real_speed_from_device) {
     return false;
   }
 
-  // SPECIAL MODE SPEEDS
+  // SPECIAL MODE SPEEDS (levels 7..11)
+  if (this->split_special_modes_) {
+    // In split mode the HA fan only exposes speeds 1..6.
+    // Surface levels 7..11 solely via preset_mode; keep fan state=on but do not
+    // store the raw level in this->speed (it would exceed speed_count=6).
+    if (this->state != 1) {
+      this->state = 1;
+      return true;
+    }
+    return false;
+  }
+
   if (this->state != 1 || this->speed != real_speed_from_device) {
     this->state = 1;
     this->speed = real_speed_from_device;
@@ -163,6 +174,7 @@ void SecTouchFan::control(const fan::FanCall &call) {
   }
 
   // ON
+  int target_level = this->speed;
   if (new_preset_found) {
     auto current = this->get_preset_mode();
     std::string_view cur_sv =
@@ -170,15 +182,22 @@ void SecTouchFan::control(const fan::FanCall &call) {
     FanModeEnum::FanMode calculated_mode = FanModeEnum::from_string(cur_sv).value_or(FanModeEnum::FanMode::NORMAL);
     if (calculated_mode == FanModeEnum::FanMode::NORMAL) {
       this->speed = 1;
+      target_level = 1;
     } else {
-      this->speed = FanModeEnum::get_start_speed(calculated_mode);
+      target_level = FanModeEnum::get_start_speed(calculated_mode);
+      if (this->split_special_modes_ && target_level > 6) {
+        // Keep this->speed in 1..6 so HA (speed_count=6) stays in range.
+        // The special level goes to the BDE via target_level only; preset_mode is the HA signal.
+      } else {
+        this->speed = target_level;
+      }
     }
   }
   auto log_preset = this->get_preset_mode();
-  ESP_LOGI(TAG, "[Update for %d] - [%s] speed: %d", this->level_id, log_preset.empty() ? "Unknown" : log_preset.c_str(),
-           this->speed);
+  ESP_LOGI(TAG, "[Update for %d] - [%s] target_level: %d (ha_speed: %d)", this->level_id,
+           log_preset.empty() ? "Unknown" : log_preset.c_str(), target_level, this->speed);
   this->parent->add_set_task(
-      SetDataTask::create(TaskTargetType::LEVEL, this->level_id, std::to_string(this->speed).c_str()));
+      SetDataTask::create(TaskTargetType::LEVEL, this->level_id, std::to_string(target_level).c_str()));
 
   ESP_LOGI(TAG, "Publishing state of FAN");
   this->publish_state();
