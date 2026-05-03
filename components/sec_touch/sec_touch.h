@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <queue>
 #include "esphome/core/component.h"
 #include "esphome/core/gpio.h"
