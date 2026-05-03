@@ -108,7 +108,13 @@ bool SecTouchFan::assign_new_speed_if_needed(int real_speed_from_device) {
       this->state = 1;
       changed = true;
     }
-    if (real_speed_from_device == 7 && this->speed != 6) {
+    // Guarantee a valid 1..6 slider value before publishing state=ON. Without this,
+    // the first update after boot (speed=0) or after the "not connected" path (speed=255)
+    // would publish state=ON with a speed outside the advertised range.
+    if (this->speed < 1 || this->speed > 6) {
+      this->speed = (real_speed_from_device == 7) ? 6 : 1;
+      changed = true;
+    } else if (real_speed_from_device == 7 && this->speed != 6) {
       this->speed = 6;
       changed = true;
     }
