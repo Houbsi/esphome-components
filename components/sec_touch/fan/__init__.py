@@ -39,5 +39,6 @@ async def to_code(config):
 
     var = cg.new_Pvariable(config[CONF_OUTPUT_ID], parent, level_id, label_id)
     cg.add(var.set_split_special_modes(config[CONF_SPLIT_SPECIAL_MODES]))
+    cg.add(parent.register_fan(level_id, var))
     await cg.register_component(var, config)
     await fan.register_fan(var, config)
