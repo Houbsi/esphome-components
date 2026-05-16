@@ -553,7 +553,7 @@ With the flag enabled:
 # Home Assistant
 Home assistant has the problem that all fans show their speed as percentage. But we do not have percentage values, we have levels from `0` to `11`. From which some of those values are special ones.
 
-Selecting presets will carry the fan speed/percent to their corresponding level, going into `NORMAL` mode will put the speed to 1.
+Selecting presets will carry the fan speed/percent to their corresponding level. In legacy mode, going into `NORMAL` mode will put the speed to 1. With [`split_special_modes`](#bulb-split-special-modes-recommended) enabled, selecting `Normal` preserves the current slider level when it is already within `1`-`6`, and only clamps invalid values into that range.
 
 **For a better HA experience, enable [`split_special_modes`](#bulb-split-special-modes-recommended)** on the fan — this limits the slider to levels 1–6 and keeps special modes 7–11 accessible via the preset dropdown. See the example below under [`examples/split-mode.yaml`](../../examples/split-mode.yaml).
 
