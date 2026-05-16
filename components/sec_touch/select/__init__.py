@@ -46,16 +46,18 @@ CONFIG_SCHEMA = cv.All(
 def _final_validate(config):
     full = fv.full_config.get()
     fan_blocks = full.get("fan", []) or []
+    sec_touch_id = config[CONF_SEC_TOUCH_ID]
     fan_numbers_with_sec_touch = {
         entry.get(FAN_NUMBER)
         for entry in fan_blocks
         if entry.get("platform") == "sec_touch"
+        and entry.get(CONF_SEC_TOUCH_ID) == sec_touch_id
     }
     n = config[FAN_NUMBER]
     if n not in fan_numbers_with_sec_touch:
         raise cv.Invalid(
             f"select.sec_touch fan_number={n} requires a matching fan.sec_touch entry "
-            f"with fan_number={n}",
+            f"with fan_number={n} and sec_touch_id={sec_touch_id}",
             path=[FAN_NUMBER],
         )
     return config
